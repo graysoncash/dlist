@@ -219,6 +219,7 @@ Guest List: ${JSON.stringify(guestList)}`,
             matchedGuest ? "\n✅ Guest notified" : ""
           }`,
           to: process.env.HOST_PHONE,
+          messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
         })
       );
     }
@@ -235,6 +236,7 @@ Guest List: ${JSON.stringify(guestList)}`,
         twilioClient.messages.create({
           body: messageBody,
           to: matchedGuest.phone,
+          messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
         })
       );
     }
