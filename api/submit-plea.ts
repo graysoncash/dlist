@@ -82,9 +82,9 @@ export default async function handler(
 Given a name, return ALL potential matches with a confidence level for each.
 
 Confidence levels:
-- "high": Exact match or extremely clear match (same first + last name, or unique first name)
-- "medium": Could be the person but not certain (matching nickname, partial name match)
-- "low": Might be them but unlikely (similar spelling, ambiguous)
+- "high": Exact match (same first + last name) OR the first name is unique on the guest list (only one person with that first name) OR the last name is unique on the guest list (only one person with that last name)
+- "medium": Could be the person but not certain (matching common nickname, partial match when name isn't unique)
+- "low": Might be them but unlikely (similar spelling, very ambiguous)
 
 Return a JSON object with this structure:
 {
