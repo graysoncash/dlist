@@ -218,7 +218,6 @@ Guest List: ${JSON.stringify(guestList)}`,
           body: `D-LIST ALERT:\n${name} wants in.\nPlea: "${excuse}"\nMatch: ${matchText}${
             matchedGuest ? "\n✅ Guest notified" : ""
           }`,
-          from: process.env.TWILIO_PHONE_NUMBER,
           to: process.env.HOST_PHONE,
         })
       );
