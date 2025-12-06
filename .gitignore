@@ -25,3 +25,6 @@ dist-ssr
 
 .env
 .vercel
+
+api/guest-list.json
+api/guest-list.local.json

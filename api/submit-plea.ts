@@ -2,7 +2,6 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI from "openai";
 import twilio from "twilio";
 import { Resend } from "resend";
-import guestList from "./guest-list.json";
 
 const openai = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
@@ -15,6 +14,22 @@ const twilioClient = twilio(
 );
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+async function getGuestList() {
+  if (!process.env.VERCEL) {
+    // Local
+    const localGuestList = await import("./guest-list.local.json");
+    return localGuestList.default;
+  }
+
+  // Deployed
+  if (!process.env.BLOB_URL) {
+    throw new Error("BLOB_URL environment variable not set in production");
+  }
+
+  const response = await fetch(process.env.BLOB_URL);
+  return await response.json();
+}
 
 export default async function handler(
   request: VercelRequest,
@@ -54,17 +69,32 @@ export default async function handler(
   }
 
   try {
+    const guestList = await getGuestList();
     console.debug(`[D-LIST] Checking guest list for: ${name}`);
     const completion = await openai.chat.completions.create({
       model: "openai/gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `You are a bouncer at an exclusive club. You have a guest list. 
-        When given a name, check if it matches anyone on the guest list vaguely or exactly.
-        Return ONLY the JSON object of the matched guest from the list, or null if no match.
-        
-        Guest List: ${JSON.stringify(guestList)}`,
+          content: `You are a bouncer at an exclusive club checking a guest list.
+
+Given a name, return ALL potential matches with a confidence level for each.
+
+Confidence levels:
+- "high": Exact match or extremely clear match (same first + last name, or unique first name)
+- "medium": Could be the person but not certain (matching nickname, partial name match)
+- "low": Might be them but unlikely (similar spelling, ambiguous)
+
+Return a JSON object with this structure:
+{
+  "matches": [
+    { "guest": <guest object from list>, "confidence": "high|medium|low" }
+  ]
+}
+
+If no matches at all, return: { "matches": [] }
+
+Guest List: ${JSON.stringify(guestList)}`,
         },
         {
           role: "user",
@@ -74,17 +104,49 @@ export default async function handler(
     });
 
     const content = completion.choices[0]?.message?.content;
+
     console.debug(`[D-LIST] LLM Response: ${content}`);
-    let matchedGuest: { name: string; phone?: string; status: string } | null =
+
+    let matchedGuest: { name: string; phone?: string; status?: string } | null =
       null;
+    let matchResult: {
+      matches: {
+        guest: { name: string; phone?: string; status?: string };
+        confidence: string;
+      }[];
+    } | null = null;
 
     try {
-      if (content && content.trim() !== "null") {
+      if (content) {
         const cleanContent = content
           .replace(/```json/g, "")
           .replace(/```/g, "")
           .trim();
-        matchedGuest = JSON.parse(cleanContent);
+        matchResult = JSON.parse(cleanContent);
+
+        // Only set matchedGuest if there's exactly ONE high-confidence match
+        if (
+          matchResult?.matches &&
+          matchResult.matches.length === 1 &&
+          matchResult.matches[0].confidence === "high"
+        ) {
+          matchedGuest = matchResult.matches[0].guest;
+          console.debug(
+            `[D-LIST] Single high-confidence match found: ${matchedGuest.name}`
+          );
+        } else if (matchResult?.matches && matchResult.matches.length > 1) {
+          console.debug(
+            `[D-LIST] Multiple matches found, not sending to guest`
+          );
+        } else if (
+          matchResult?.matches &&
+          matchResult.matches.length === 1 &&
+          matchResult.matches[0].confidence !== "high"
+        ) {
+          console.debug(
+            `[D-LIST] Match found but confidence too low: ${matchResult.matches[0].confidence}`
+          );
+        }
       }
     } catch {
       console.error("Failed to parse LLM response:", content);
@@ -96,6 +158,27 @@ export default async function handler(
       console.debug(
         `[D-LIST] Queuing email to host: ${process.env.HOST_EMAIL}`
       );
+
+      let matchInfo = "No Match";
+      if (matchResult?.matches && matchResult.matches.length > 0) {
+        if (matchResult.matches.length === 1) {
+          const match = matchResult.matches[0];
+          const statusText = match.guest.status
+            ? ` (${match.guest.status})`
+            : "";
+          matchInfo = `${match.guest.name}${statusText} - ${match.confidence} confidence`;
+        } else {
+          matchInfo = `Multiple matches (${
+            matchResult.matches.length
+          }): ${matchResult.matches
+            .map((m) => {
+              const statusText = m.guest.status ? ` (${m.guest.status})` : "";
+              return `${m.guest.name}${statusText} - ${m.confidence}`;
+            })
+            .join(", ")}`;
+        }
+      }
+
       notifications.push(
         resend.emails.send({
           from: "D-List Bouncer <dlist@grayson.cash>",
@@ -105,11 +188,12 @@ export default async function handler(
           <h1>New Plea for Entry</h1>
           <p><strong>Name:</strong> ${name}</p>
           <p><strong>Excuse:</strong> ${excuse}</p>
-          <p><strong>Guest List Match:</strong> ${
+          <p><strong>Guest List Match:</strong> ${matchInfo}</p>
+          ${
             matchedGuest
-              ? matchedGuest.name + " (" + matchedGuest.status + ")"
-              : "No Match"
-          }</p>
+              ? "<p><em>✅ Guest was notified</em></p>"
+              : "<p><em>⚠️ Guest was NOT notified (multiple matches or low confidence)</em></p>"
+          }
           `,
         })
       );
@@ -117,10 +201,21 @@ export default async function handler(
 
     if (process.env.HOST_PHONE) {
       console.debug(`[D-LIST] Queuing text to host: ${process.env.HOST_PHONE}`);
+
+      let matchText = "None";
+      if (matchResult?.matches && matchResult.matches.length > 0) {
+        if (matchResult.matches.length === 1) {
+          const match = matchResult.matches[0];
+          matchText = `${match.guest.name} (${match.confidence})`;
+        } else {
+          matchText = `${matchResult.matches.length} matches - see email`;
+        }
+      }
+
       notifications.push(
         twilioClient.messages.create({
-          body: `D-LIST ALERT:\n${name} wants in.\nPlea: "${excuse}"\nMatch: ${
-            matchedGuest ? matchedGuest.name : "None"
+          body: `D-LIST ALERT:\n${name} wants in.\nPlea: "${excuse}"\nMatch: ${matchText}${
+            matchedGuest ? "\n✅ Guest notified" : ""
           }`,
           from: process.env.TWILIO_PHONE_NUMBER,
           to: process.env.HOST_PHONE,
@@ -130,10 +225,15 @@ export default async function handler(
 
     if (matchedGuest && matchedGuest.phone) {
       console.debug(`[D-LIST] Queuing text to guest: ${matchedGuest.phone}`);
+
+      const messageBody =
+        matchedGuest.status?.toLowerCase() === "vip"
+          ? `${matchedGuest.name}, bestie. You're FINE. Honestly it's worse if you don't show up at all. Just come through.`
+          : `Hey ${matchedGuest.name}. Got your plea: "${excuse}". We'll review and let you know. Don't hold your breath though.`;
+
       notifications.push(
         twilioClient.messages.create({
-          body: `Hey ${matchedGuest.name}. We see you begging outside. It's cute. We're reviewing your plea: "${excuse}". Standby.`,
-          from: process.env.TWILIO_PHONE_NUMBER,
+          body: messageBody,
           to: matchedGuest.phone,
         })
       );

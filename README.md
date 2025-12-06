@@ -5,7 +5,7 @@
 A delightfully judgemental web app for when someone shows up to your themed party without following the theme. Because if they can't read the dress code, they can at least beg convincingly.
 
 ![Status](https://img.shields.io/badge/status-judging-critical)
-![Vibe](https://img.shields.io/badge/vibe-exclusive-pink)
+![Vibe](https://img.shields.io/badge/vibe-immaculate-pink)
 
 ## What Is This?
 
@@ -18,7 +18,7 @@ Instead of awkwardly turning them away at the door, let them submit a digital pl
 3. **Notifies you** via email and text with their plea
 4. **Messages the guest** if they're on the list (optional roasting included)
 
-It's giving velvet rope. It's giving "you can't sit with us." It's giving **accountability**.
+It's giving table stakes. It's giving "you can sit with us if you try." It's giving **accountability**.
 
 ---
 
@@ -30,7 +30,7 @@ It's giving velvet rope. It's giving "you can't sit with us." It's giving **acco
 - **Notifications**: 
   - Resend for emails
   - Twilio for SMS
-- **Hosting**: Vercel (obviously)
+- **Hosting**: Vercel
 
 ---
 
@@ -70,20 +70,6 @@ pnpm install
 cp .env.example .env
 ```
 
-### Environment Variables
-
-Create a `.env` file in the root:
-
-```bash
-OPENROUTER_API_KEY=sk-or-...
-TWILIO_ACCOUNT_SID=AC...
-TWILIO_AUTH_TOKEN=...
-TWILIO_PHONE_NUMBER=+1234567890
-RESEND_API_KEY=re_...
-HOST_EMAIL=your@email.com
-HOST_PHONE=+1234567890
-```
-
 ### Guest List
 
 Edit `api/guest-list.json` with your actual guest list:
@@ -103,38 +89,6 @@ Edit `api/guest-list.json` with your actual guest list:
 
 ```bash
 pnpm dev
-```
-
-This starts Vercel's dev server which handles both the frontend (Vite) and API routes. Visit `http://localhost:3000`.
-
----
-
-## Deployment
-
-```bash
-# Login to Vercel
-vercel login
-
-# Deploy
-vercel --prod
-```
-
-Set your environment variables in the Vercel dashboard under **Settings → Environment Variables**.
-
----
-
-## Project Structure
-
-```
-dlist/
-├── api/
-│   ├── guest-list.json       # Your exclusive guest list
-│   └── submit-plea.ts         # Serverless function handler
-├── src/
-│   ├── App.tsx                # Main React component
-│   └── App.css                # The aesthetic™
-├── public/
-└── package.json
 ```
 
 ---
