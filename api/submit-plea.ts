@@ -16,7 +16,7 @@ const twilioClient = twilio(
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 async function getGuestList() {
-  if (!process.env.VERCEL) {
+  if (process.env.NEXT_PUBLIC_VERCEL_ENV === "development") {
     // Local
     const localGuestList = await import("./guest-list.local.json");
     return localGuestList.default;
