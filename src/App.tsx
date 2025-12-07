@@ -127,7 +127,7 @@ function App() {
                   />
                   {!excuse && (
                     <div className="textarea-placeholder">
-                      Why can't you follow the theme?<br /><br />Beg. Convincingly. And quickly.
+                      Why can't you follow the theme?<br /><br />Be convincing. And quick.
                     </div>
                   )}
                 </div>
