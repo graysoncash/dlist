@@ -109,6 +109,23 @@ textarea {
   width: 100%;
 }
 
+.textarea-wrapper {
+  position: relative;
+}
+
+.textarea-placeholder {
+  position: absolute;
+  top: 1.25rem;
+  left: 1.25rem;
+  pointer-events: none;
+  color: #999;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  white-space: pre-line;
+  line-height: 1.5;
+}
+
 input:focus,
 textarea:focus {
   outline: none;
@@ -246,6 +263,10 @@ footer p {
     border-color: #333;
     color: white;
     background: #000;
+  }
+
+  .textarea-placeholder {
+    color: #666;
   }
 
   input:focus,

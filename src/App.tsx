@@ -82,14 +82,20 @@ function App() {
 
               <div className="input-group">
                 <label htmlFor="excuse">The Plea</label>
-                <textarea 
-                  id="excuse" 
-                  value={excuse}
-                  onChange={(e) => setExcuse(e.target.value)}
-                  placeholder="Beg. Convincingly. And quickly."
-                  rows={4}
-                  required
-                />
+                <div className="textarea-wrapper">
+                  <textarea 
+                    id="excuse" 
+                    value={excuse}
+                    onChange={(e) => setExcuse(e.target.value)}
+                    rows={4}
+                    required
+                  />
+                  {!excuse && (
+                    <div className="textarea-placeholder">
+                      Why can't you follow the theme?<br /><br />Beg. Convincingly. And quickly.
+                    </div>
+                  )}
+                </div>
               </div>
 
               <button type="submit">Plead Your Case</button>
