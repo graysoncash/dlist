@@ -6,9 +6,12 @@ function App() {
   const [phone, setPhone] = useState('')
   const [excuse, setExcuse] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [roast, setRoast] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setLoading(true)
     
     const payload = {
       name: name.trim(),
@@ -16,23 +19,45 @@ function App() {
       excuse: excuse.trim()
     }
 
-    // Fire off the plea into the void (backend) without making the user wait
-    fetch('/api/submit-plea', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    }).catch((err) => {
-      // If it fails, does it really matter? The vibe is "we don't care".
-      console.error('Plea submission failed:', err)
-    })
+    try {
+      const response = await fetch('/api/submit-plea', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
 
-    console.log('Submission:', payload)
-    setSubmitted(true)
-    setName('')
-    setPhone('')
-    setExcuse('')
+      const data = await response.json()
+
+      if (response.ok && !data.expired) {
+        console.log('Submission:', payload)
+        setSubmitted(true)
+        setRoast(null)
+        setName('')
+        setPhone('')
+        setExcuse('')
+      } else if (data.expired) {
+        // Ignore the backend roast, give them the cold hard truth
+        setRoast("Honey, the list is closed. You missed the window. Sorry.")
+      } else {
+        // Other errors
+        setRoast(data.error || 'Submission failed')
+      }
+    } catch (err) {
+      console.error('Plea submission failed:', err)
+      setRoast('Failed to submit plea. Try again?')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleInvalid = (e: React.InvalidEvent<HTMLInputElement | HTMLTextAreaElement>, message: string) => {
+    e.target.setCustomValidity(message)
+  }
+
+  const handleInput = (e: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    e.currentTarget.setCustomValidity('')
   }
 
   return (
@@ -47,6 +72,10 @@ function App() {
           <div className="judgment-zone">
             <p>We've received your plea.</p>
             <p>Don't hold your breath.</p>
+          </div>
+        ) : roast ? (
+          <div className="judgment-zone">
+            <p>{roast}</p>
           </div>
         ) : (
           <>
@@ -63,6 +92,8 @@ function App() {
                   id="name" 
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  onInvalid={(e) => handleInvalid(e, "Forgetting something?")}
+                  onInput={handleInput}
                   placeholder="Who are you again?"
                   required
                 />
@@ -75,6 +106,8 @@ function App() {
                   id="phone" 
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
+                  onInvalid={(e) => handleInvalid(e, "Pleaseeeee, I want to send you good morning texts.")}
+                  onInput={handleInput}
                   placeholder="So we can call you (we won't)"
                   required
                 />
@@ -87,6 +120,8 @@ function App() {
                     id="excuse" 
                     value={excuse}
                     onChange={(e) => setExcuse(e.target.value)}
+                    onInvalid={(e) => handleInvalid(e, "Almost there...")}
+                    onInput={handleInput}
                     rows={4}
                     required
                   />
@@ -98,7 +133,9 @@ function App() {
                 </div>
               </div>
 
-              <button type="submit">Plead Your Case</button>
+              <button type="submit" disabled={loading}>
+                {loading ? <span className="spinner" /> : 'Plead Your Case'}
+              </button>
             </form>
           </>
         )}

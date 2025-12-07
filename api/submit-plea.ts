@@ -8,14 +8,6 @@ const require = createRequire(import.meta.url);
 
 // --- Constants & Config ---
 
-const ROASTS = [
-  "Baby, the party's OVER. You're literally trying to get into a venue that's already been cleaned and closed. The janitor left two hours ago.",
-  "Bestie, you missed it. The DJ packed up, the lights came on, and everyone saw how crusty they looked. You're late to a party that already ended.",
-  "Girl... the event already happened. This is giving 'showed up to prom the next morning' energy and it's deeply embarrassing.",
-  "Ma'am/Sir, the party was YESTERDAY. You're out here begging to get into an empty room with confetti on the floor. Read the room!",
-  "Sweetie, you're literally trying to RSVP to history. The event is done, finished, finito. Take the L and go home.",
-];
-
 const STYLES = {
   body: "margin: 0; padding: 20px; background-color: #f0f0f0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;",
   container:
@@ -161,8 +153,9 @@ export default async function handler(
   // Check Expiry
   if (process.env.EVENT_CUTOFF_DATE) {
     if (new Date() > new Date(process.env.EVENT_CUTOFF_DATE)) {
-      const roast = ROASTS[Math.floor(Math.random() * ROASTS.length)];
-      return response.status(410).json({ error: roast, expired: true });
+      return response
+        .status(410)
+        .json({ error: "Event has passed", expired: true });
     }
   }
 
