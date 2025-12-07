@@ -2,10 +2,12 @@
   {
     "name": "Jane Doe",
     "phone": "+15551234567",
+    "email": "jane.doe@example.com",
     "status": "vip"
   },
   {
     "name": "John Smith",
-    "status": "standard"
+    "phone": "+15551234568",
+    "email": "john.smith@example.com"
   }
 ]

@@ -1,7 +1,76 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI from "openai";
 import twilio from "twilio";
-import { Resend } from "resend";
+import { Resend, type CreateEmailOptions } from "resend";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
+
+// --- Constants & Config ---
+
+const ROASTS = [
+  "Baby, the party's OVER. You're literally trying to get into a venue that's already been cleaned and closed. The janitor left two hours ago.",
+  "Bestie, you missed it. The DJ packed up, the lights came on, and everyone saw how crusty they looked. You're late to a party that already ended.",
+  "Girl... the event already happened. This is giving 'showed up to prom the next morning' energy and it's deeply embarrassing.",
+  "Ma'am/Sir, the party was YESTERDAY. You're out here begging to get into an empty room with confetti on the floor. Read the room!",
+  "Sweetie, you're literally trying to RSVP to history. The event is done, finished, finito. Take the L and go home.",
+];
+
+const STYLES = {
+  body: "margin: 0; padding: 20px; background-color: #f0f0f0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;",
+  container:
+    "max-width: 500px; margin: 0 auto; background: white; border: 4px solid #000; box-shadow: 15px 15px 0px #000; padding: 40px; text-align: left;",
+  h1: "font-size: 32px; font-weight: 900; text-transform: uppercase; letter-spacing: -2px; margin: 0; line-height: 0.9; color: #000;",
+  subtitle:
+    "font-size: 11px; font-weight: 800; letter-spacing: 0.2em; margin-top: 12px; margin-bottom: 0; color: #000; text-transform: uppercase; border-bottom: 2px solid #000; display: inline-block; padding-bottom: 6px;",
+  content: "font-size: 16px; line-height: 1.5; font-weight: 400; color: #000;",
+  footer:
+    "margin-top: 40px; text-align: center; font-size: 10px; font-weight: 900; color: #000; letter-spacing: 1px; text-transform: uppercase; opacity: 0.5;",
+  link: "color: #000; text-decoration: underline;",
+  p: "margin-bottom: 16px;",
+};
+
+const MESSAGES = {
+  vip: {
+    subject: "You're on the list, sweetie",
+    title: "You're Fine",
+    sms: (name: string) =>
+      `${name}, bestie. You're FINE. Honestly it's worse if you don't show up at all. Just come through.`,
+    email: (name: string) =>
+      `${name}, bestie.\n\nYou're FINE. Honestly it's worse if you don't show up at all.\nJust come through.`,
+    html: `
+      <p style="${STYLES.p}">Honestly it's worse if you don't show up at all.</p>
+      <p style="${STYLES.p}">Just come through.</p>
+    `,
+  },
+  regular: {
+    subject: "We received your plea",
+    title: "We received your plea",
+    sms: (name: string, content: string) =>
+      `Hey ${name}. ${content}\n\nWe'll review and let you know.\nDon't hold your breath though.`,
+    email: (name: string, content: string) =>
+      `Hey ${name}.\n\n${content}\n\nWe'll review and let you know.\nDon't hold your breath though.`,
+    html: (content: string) => `
+      <p style="${STYLES.p}">${content}</p>
+      <p style="${STYLES.p}">We'll review and let you know.</p>
+      <p style="${STYLES.p}">Don't hold your breath though.</p>
+    `,
+  },
+};
+
+interface Guest {
+  name: string;
+  phone?: string;
+  email?: string;
+  status?: string;
+}
+
+interface MatchResult {
+  matches: {
+    guest: Guest | string;
+    confidence: string;
+  }[];
+}
 
 const openai = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
@@ -15,22 +84,71 @@ const twilioClient = twilio(
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-async function getGuestList() {
-  if (process.env.NEXT_PUBLIC_VERCEL_ENV === "development") {
-    // Local
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const localGuestList = await import("./guest-list.local.json" as any);
-    return localGuestList.default;
+// --- Helpers ---
+
+async function sendEmail(payload: CreateEmailOptions) {
+  const { data, error } = await resend.emails.send(payload);
+  if (error) {
+    throw new Error(`Resend error: ${error.name} - ${error.message}`);
+  }
+  return data;
+}
+
+function generateEmailHtml(title: string, subtitle: string, content: string) {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body style="${STYLES.body}">
+        <div style="${STYLES.container}">
+          <header style="margin-bottom: 30px;">
+            <h1 style="${STYLES.h1}">${title}</h1>
+            <p style="${STYLES.subtitle}">${subtitle}</p>
+          </header>
+          
+          <div style="${STYLES.content}">
+            ${content}
+          </div>
+
+          <footer style="${STYLES.footer}">
+            <p style="margin: 0;">NO GUARANTEES. NO REFUNDS ON DIGNITY.</p>
+            <p style="margin-top: 10px; font-weight: 400; font-size: 9px; opacity: 0.8; text-transform: none;">
+              You received this because you submitted a plea to D-List.<br>
+              <a href="https://dlist.grayson.cash" style="${STYLES.link}">dlist.grayson.cash</a>
+            </p>
+          </footer>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+async function getGuestList(): Promise<Guest[]> {
+  const env = process.env.NEXT_PUBLIC_VERCEL_ENV;
+  console.info(`[D-LIST] Loading guest list - env: ${env}`);
+
+  if (env === "development") {
+    console.info(`[D-LIST] Loading local guest list`);
+    const list = require("./guest-list.local.json");
+    console.info(`[D-LIST] Local guest list loaded successfully`);
+    return list;
   }
 
-  // Deployed
   if (!process.env.BLOB_URL) {
     throw new Error("BLOB_URL environment variable not set in production");
   }
 
+  console.info(`[D-LIST] Fetching from: ${process.env.BLOB_URL}`);
   const response = await fetch(process.env.BLOB_URL);
-  return await response.json();
+  const data = await response.json();
+  console.info(`[D-LIST] Blob data parsed successfully`);
+  return data;
 }
+
+// --- Handler ---
 
 export default async function handler(
   request: VercelRequest,
@@ -40,216 +158,264 @@ export default async function handler(
     return response.status(405).json({ error: "Method not allowed" });
   }
 
-  // Check if the event has already passed
+  // Check Expiry
   if (process.env.EVENT_CUTOFF_DATE) {
-    const cutoffDate = new Date(process.env.EVENT_CUTOFF_DATE);
-    const now = new Date();
-
-    if (now > cutoffDate) {
-      const roasts = [
-        "Baby, the party's OVER. You're literally trying to get into a venue that's already been cleaned and closed. The janitor left two hours ago.",
-        "Bestie, you missed it. The DJ packed up, the lights came on, and everyone saw how crusty they looked. You're late to a party that already ended.",
-        "Girl... the event already happened. This is giving 'showed up to prom the next morning' energy and it's deeply embarrassing.",
-        "Ma'am/Sir, the party was YESTERDAY. You're out here begging to get into an empty room with confetti on the floor. Read the room!",
-        "Sweetie, you're literally trying to RSVP to history. The event is done, finished, finito. Take the L and go home.",
-      ];
-
-      const roast = roasts[Math.floor(Math.random() * roasts.length)];
-
-      return response.status(410).json({
-        error: roast,
-        expired: true,
-      });
+    if (new Date() > new Date(process.env.EVENT_CUTOFF_DATE)) {
+      const roast = ROASTS[Math.floor(Math.random() * ROASTS.length)];
+      return response.status(410).json({ error: roast, expired: true });
     }
   }
 
-  const { name, excuse } = request.body;
-
-  if (!name || !excuse) {
-    return response.status(400).json({ error: "Missing name or excuse" });
+  const { name, excuse, phone } = request.body;
+  if (!name || !excuse || !phone) {
+    return response
+      .status(400)
+      .json({ error: "Missing name, phone, or excuse" });
   }
+
+  console.info(`[D-LIST] Processing plea for: ${name}`);
 
   try {
     const guestList = await getGuestList();
-    console.debug(`[D-LIST] Checking guest list for: ${name}`);
+    const sanitizedGuestList = guestList.map(({ name, status }) => ({
+      name,
+      status,
+    }));
+
     const completion = await openai.chat.completions.create({
       model: "openai/gpt-4o-mini",
       messages: [
         {
           role: "system",
           content: `You are a bouncer at an exclusive club checking a guest list.
-
-Given a name, return ALL potential matches with a confidence level for each.
-
+Given a name, return ALL potential matches with a confidence level.
 Confidence levels:
-- "high": Exact match (same first + last name) OR the first name is unique on the guest list (only one person with that first name) OR the last name is unique on the guest list (only one person with that last name)
-- "medium": Could be the person but not certain (matching common nickname, partial match when name isn't unique)
-- "low": Might be them but unlikely (similar spelling, very ambiguous)
+- "high": Exact match or unique first/last name match
+- "medium": Probable match (nickname, partial)
+- "low": Unlikely match
 
-Return a JSON object with this structure:
-{
-  "matches": [
-    { "guest": <guest object from list>, "confidence": "high|medium|low" }
-  ]
-}
-
-If no matches at all, return: { "matches": [] }
-
-Guest List: ${JSON.stringify(guestList)}`,
+Return JSON: { "matches": [{ "guest": <guest>, "confidence": "high|medium|low" }] }
+Guest List: ${JSON.stringify(sanitizedGuestList)}`,
         },
-        {
-          role: "user",
-          content: `Check this name: ${name}`,
-        },
+        { role: "user", content: `Check this name: ${name}` },
       ],
     });
 
-    const content = completion.choices[0]?.message?.content;
-
-    console.debug(`[D-LIST] LLM Response: ${content}`);
-
-    let matchedGuest: { name: string; phone?: string; status?: string } | null =
-      null;
-    let matchResult: {
-      matches: {
-        guest: { name: string; phone?: string; status?: string };
-        confidence: string;
-      }[];
-    } | null = null;
+    const content = completion.choices[0]?.message?.content || "";
+    let matchedGuest: Guest | null = null;
+    let matchResult: MatchResult | null = null;
 
     try {
-      if (content) {
-        const cleanContent = content
-          .replace(/```json/g, "")
-          .replace(/```/g, "")
-          .trim();
-        matchResult = JSON.parse(cleanContent);
-
-        // Only set matchedGuest if there's exactly ONE high-confidence match
-        if (
-          matchResult?.matches &&
-          matchResult.matches.length === 1 &&
-          matchResult.matches[0].confidence === "high"
-        ) {
-          matchedGuest = matchResult.matches[0].guest;
-          console.debug(
-            `[D-LIST] Single high-confidence match found: ${matchedGuest.name}`
-          );
-        } else if (matchResult?.matches && matchResult.matches.length > 1) {
-          console.debug(
-            `[D-LIST] Multiple matches found, not sending to guest`
-          );
-        } else if (
-          matchResult?.matches &&
-          matchResult.matches.length === 1 &&
-          matchResult.matches[0].confidence !== "high"
-        ) {
-          console.debug(
-            `[D-LIST] Match found but confidence too low: ${matchResult.matches[0].confidence}`
-          );
-        }
-      }
-    } catch {
-      console.error("Failed to parse LLM response:", content);
-    }
-
-    const notifications: Promise<unknown>[] = [];
-
-    if (process.env.HOST_EMAIL) {
-      console.debug(
-        `[D-LIST] Queuing email to host: ${process.env.HOST_EMAIL}`
+      const cleanContent = content
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+      matchResult = JSON.parse(cleanContent);
+      console.info(
+        "[D-LIST] Match result:",
+        JSON.stringify(matchResult, null, 2)
       );
 
-      let matchInfo = "No Match";
-      if (matchResult?.matches && matchResult.matches.length > 0) {
-        if (matchResult.matches.length === 1) {
-          const match = matchResult.matches[0];
-          const statusText = match.guest.status
-            ? ` (${match.guest.status})`
-            : "";
-          matchInfo = `${match.guest.name}${statusText} - ${match.confidence} confidence`;
-        } else {
-          matchInfo = `Multiple matches (${
-            matchResult.matches.length
-          }): ${matchResult.matches
-            .map((m) => {
-              const statusText = m.guest.status ? ` (${m.guest.status})` : "";
-              return `${m.guest.name}${statusText} - ${m.confidence}`;
-            })
-            .join(", ")}`;
-        }
+      const matches = matchResult?.matches || [];
+      const highConfidence = matches.filter((m) => m.confidence === "high");
+      const mediumConfidence = matches.filter((m) => m.confidence === "medium");
+
+      let selectedMatch;
+      if (highConfidence.length === 1) {
+        selectedMatch = highConfidence[0];
+      } else if (highConfidence.length === 0 && mediumConfidence.length === 1) {
+        selectedMatch = mediumConfidence[0];
       }
 
+      if (selectedMatch) {
+        const guestName =
+          typeof selectedMatch.guest === "string"
+            ? selectedMatch.guest
+            : selectedMatch.guest.name;
+        matchedGuest = guestList.find((g) => g.name === guestName) || null;
+      }
+      console.info(`[D-LIST] Matched Guest: ${matchedGuest?.name || "None"}`);
+    } catch (e) {
+      console.error("Failed to parse LLM response", e);
+    }
+
+    // Generate Roast if needed
+    let roast: string | null = null;
+    const isVip = matchedGuest?.status?.toLowerCase() === "vip";
+
+    if (matchedGuest && !isVip) {
+      try {
+        console.log(`[D-LIST] Generating roast for ${matchedGuest.name}`);
+        const roastPromise = openai.chat.completions.create({
+          model: "openai/gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a bouncer at an exclusive club. Analyze the tone of the guest's excuse.\n\nIf they are nice/polite:\n- Be polite but firm. You are still the gatekeeper.\n- Acknowledge their excuse but remind them it's a strict list.\n\nIf they are rude, bitchy, or entitled:\n- Roast them back. Match their energy.\n- Be witty, mean, and dismissive.\n\nOutput plain text only. No quotes. Use first name only. Keep it under 40 words. Do NOT include a sign-off like 'We'll review it'.",
+            },
+            {
+              role: "user",
+              content: `Guest Name: ${matchedGuest.name}\nExcuse: ${excuse}`,
+            },
+          ],
+        });
+
+        // Timeout after 4 seconds to prevent Vercel timeout
+        const timeoutPromise = new Promise<null>((resolve) =>
+          setTimeout(() => resolve(null), 4000)
+        );
+
+        const result = await Promise.race([roastPromise, timeoutPromise]);
+
+        if (!result) {
+          console.warn("[D-LIST] Roast generation timed out");
+        } else {
+          // @ts-expect-error - Promise race type inference
+          roast = result.choices[0]?.message?.content?.trim() || null;
+        }
+      } catch (error) {
+        console.error("Failed to generate roast:", error);
+      }
+    }
+
+    console.info("[D-LIST] Preparing notifications...");
+    const notifications: Promise<unknown>[] = [];
+
+    // Host Notifications
+    if (process.env.HOST_EMAIL) {
+      console.info(
+        `[D-LIST] Adding Host Email notification to ${process.env.HOST_EMAIL}`
+      );
+      const matchInfo = matchResult?.matches?.length
+        ? matchResult.matches
+            .map((m) => `${m.guest.name} (${m.confidence})`)
+            .join(", ")
+        : "No Match";
+
+      const contactMethods = [
+        matchedGuest?.phone && "text",
+        matchedGuest?.email && "email",
+      ].filter(Boolean);
+
+      const guestNotified = contactMethods.length
+        ? `✅ Guest was notified via ${contactMethods.join(" and ")}`
+        : matchedGuest
+        ? "⚠️ Guest matched but has no contact info"
+        : "⚠️ Guest was NOT notified";
+
       notifications.push(
-        resend.emails.send({
+        sendEmail({
           from: "D-List Bouncer <dlist@grayson.cash>",
           to: process.env.HOST_EMAIL,
+          replyTo: process.env.HOST_EMAIL,
           subject: `New Plea: ${name}`,
-          html: `
-          <h1>New Plea for Entry</h1>
-          <p><strong>Name:</strong> ${name}</p>
-          <p><strong>Excuse:</strong> ${excuse}</p>
-          <p><strong>Guest List Match:</strong> ${matchInfo}</p>
-          ${
-            matchedGuest
-              ? "<p><em>✅ Guest was notified</em></p>"
-              : "<p><em>⚠️ Guest was NOT notified (multiple matches or low confidence)</em></p>"
-          }
-          `,
+          text: `New Plea from ${name}\nPhone: ${phone}\nExcuse: ${excuse}\nMatch: ${matchInfo}\n\n${guestNotified}`,
+          html: generateEmailHtml(
+            "New Plea",
+            "Someone wants in",
+            `
+           <p style="${STYLES.p}"><strong>Name:</strong> ${name}</p>
+           <p style="${STYLES.p}"><strong>Phone:</strong> ${phone}</p>
+           <p style="${STYLES.p}"><strong>Excuse:</strong> ${excuse}</p>
+           <p style="${STYLES.p}"><strong>Match:</strong> ${matchInfo}</p>
+           <p style="${STYLES.p}"><em>${guestNotified}</em></p>
+         `
+          ),
         })
       );
     }
 
     if (process.env.HOST_PHONE) {
-      console.debug(`[D-LIST] Queuing text to host: ${process.env.HOST_PHONE}`);
-
-      let matchText = "None";
-      if (matchResult?.matches && matchResult.matches.length > 0) {
-        if (matchResult.matches.length === 1) {
-          const match = matchResult.matches[0];
-          matchText = `${match.guest.name} (${match.confidence})`;
-        } else {
-          matchText = `${matchResult.matches.length} matches - see email`;
-        }
-      }
+      console.info(
+        `[D-LIST] Adding Host SMS notification to ${process.env.HOST_PHONE}`
+      );
+      const matchText =
+        matchResult?.matches && matchResult.matches.length === 1
+          ? `${matchResult.matches[0].guest.name} (${matchResult.matches[0].confidence})`
+          : matchResult?.matches && matchResult.matches.length > 1
+          ? `${matchResult.matches.length} matches`
+          : "None";
 
       notifications.push(
         twilioClient.messages.create({
-          body: `D-LIST ALERT:\n${name} wants in.\nPlea: "${excuse}"\nMatch: ${matchText}${
+          body: `D-LIST ALERT:\n${name} wants in.\nPhone: ${phone}\nPlea: "${excuse}"\nMatch: ${matchText}${
             matchedGuest ? "\n✅ Guest notified" : ""
           }`,
           to: process.env.HOST_PHONE,
-          messagingServiceSid: process.env.TWILIO_ACCOUNT_SID,
+          messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
         })
       );
     }
 
-    if (matchedGuest && matchedGuest.phone) {
-      console.debug(`[D-LIST] Queuing text to guest: ${matchedGuest.phone}`);
+    // Guest Notifications
+    if (matchedGuest) {
+      const firstName = matchedGuest.name.split(" ")[0];
+      const messageConfig = isVip ? MESSAGES.vip : MESSAGES.regular;
 
-      const messageBody =
-        matchedGuest.status?.toLowerCase() === "vip"
-          ? `${matchedGuest.name}, bestie. You're FINE. Honestly it's worse if you don't show up at all. Just come through.`
-          : `Hey ${matchedGuest.name}. Got your plea: "${excuse}". We'll review and let you know. Don't hold your breath though.`;
+      const smsBody = isVip
+        ? MESSAGES.vip.sms(firstName)
+        : MESSAGES.regular.sms(
+            firstName,
+            roast || `Got your plea: "${excuse}"`
+          );
 
-      notifications.push(
-        twilioClient.messages.create({
-          body: messageBody,
-          to: matchedGuest.phone,
-          messagingServiceSid: process.env.TWILIO_ACCOUNT_SID,
-        })
-      );
+      const emailBody = isVip
+        ? MESSAGES.vip.email(firstName)
+        : MESSAGES.regular.email(
+            firstName,
+            roast || `Got your plea: "${excuse}"`
+          );
+
+      const htmlContent = isVip
+        ? MESSAGES.vip.html
+        : MESSAGES.regular.html(
+            roast ? roast : `Got your plea: "<em>${excuse}</em>"`
+          );
+
+      if (matchedGuest.phone) {
+        notifications.push(
+          twilioClient.messages.create({
+            body: smsBody,
+            to: matchedGuest.phone,
+            messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+          })
+        );
+      }
+
+      if (matchedGuest.email) {
+        notifications.push(
+          sendEmail({
+            from: "D-List Bouncer <dlist@grayson.cash>",
+            to: matchedGuest.email,
+            replyTo: process.env.HOST_EMAIL,
+            subject: messageConfig.subject,
+            text: emailBody,
+            html: generateEmailHtml(
+              `Hey ${firstName}`,
+              messageConfig.title,
+              htmlContent
+            ),
+          })
+        );
+      }
     }
 
-    await Promise.allSettled(notifications);
-    console.debug(`[D-LIST] All notifications sent (or failed gracefully).`);
-
-    return response.status(200).json({
-      success: true,
-      matched: !!matchedGuest,
+    console.info(`[D-LIST] Sending ${notifications.length} notifications...`);
+    const results = await Promise.allSettled(notifications);
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        console.error(`[D-LIST] Notification ${index} failed:`, result.reason);
+      } else {
+        console.info(`[D-LIST] Notification ${index} sent successfully`);
+      }
     });
+
+    return response
+      .status(200)
+      .json({ success: true, matched: !!matchedGuest });
   } catch (error) {
-    console.error("Error processing plea:", error);
+    console.error("[D-LIST] Error:", error);
     return response.status(500).json({ error: "Internal Server Error" });
   }
 }
