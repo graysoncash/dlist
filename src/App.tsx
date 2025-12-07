@@ -52,8 +52,8 @@ function App() {
     }
   }
 
-  const handleInvalid = (e: React.InvalidEvent<HTMLInputElement | HTMLTextAreaElement>, message: string) => {
-    e.target.setCustomValidity(message)
+  const handleInvalid = (e: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>, message: string) => {
+    (e.target as HTMLInputElement | HTMLTextAreaElement).setCustomValidity(message)
   }
 
   const handleInput = (e: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>) => {
