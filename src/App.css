@@ -212,6 +212,8 @@ footer p {
   button {
     padding: 1rem;
     font-size: 1rem;
+    margin-top: 0.25rem;
+    margin-bottom: 0.5rem;
   }
 
   footer {
