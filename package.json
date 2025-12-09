@@ -15,8 +15,8 @@
   "dependencies": {
     "dotenv": "^17.2.3",
     "openai": "^6.10.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
     "resend": "^6.5.2",
     "twilio": "^5.10.7"
   },
